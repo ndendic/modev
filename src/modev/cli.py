@@ -11,6 +11,10 @@ NOTEBOOK_TEMPLATE = '''import marimo
 # __generated_with = "0.1.0" # Adjust version as needed
 app = marimo.App(width="medium")
 
+@app.cell
+def _():
+    #| default_exp core
+    return
 
 @app.cell
 def _():

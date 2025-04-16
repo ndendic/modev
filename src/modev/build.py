@@ -82,7 +82,7 @@ def load_config(project_root: Path) -> tuple[Path, Path]:
 
 def extract_export_details(app: App, project_root: Path) -> tuple[str | None, str, set[str]]:
     """
-    Extracts target filename from the first cell's #| default_exp directive (if present),
+    Extracts target filename from the first #| default_exp directive encountered,
     and Python code marked with '#| export' from a marimo App.
 
     Returns: (target_filename | None, code_export, all_defs)
@@ -94,35 +94,27 @@ def extract_export_details(app: App, project_root: Path) -> tuple[str | None, st
 
     try:
         internal_app = InternalApp(app)
-        order = internal_app.execution_order
-        export_cells = {
-            k: v for k, v in internal_app.graph.cells.items()
-            if v.language == "python" and "#| export" in v.code
-        }
+        
+        # --- 1. Find the first #| default_exp directive --- 
+        # Iterate through cells (order might approximate definition, but we stop on first find)
+        for cell in internal_app.graph.cells.values():
+            if cell.language == "python":
+                # Regex to find #| default_exp name or #| default_exp name.py
+                match = re.search(r"^#\|\s*default_exp\s+(\S+)", cell.code, re.MULTILINE)
+                if match:
+                    target_name = match.group(1).strip()
+                    if not target_name:
+                        typer.secho(f"  Warning: Found '#| default_exp' directive but no filename specified in cell {cell.cell_id} of {getattr(app, '_filename', '?')}", fg=typer.colors.YELLOW)
+                    else:
+                        # Ensure it ends with .py
+                        if not target_name.endswith('.py'):
+                            target_name += '.py'
+                        target_filename = target_name
+                        typer.echo(f"  Found export directive in cell {cell.cell_id}: target filename set to '{target_filename}'")
+                    break # Stop searching once the first directive is found and processed
 
-        cell_ids_definition_order = list(export_cells.keys())
-
-        # --- 1. Check first cell for #| default_exp directive --- 
-        if cell_ids_definition_order:
-            first_cell_id = cell_ids_definition_order[0]
-            if first_cell_id in internal_app.graph.cells:
-                first_cell = internal_app.graph.cells[first_cell_id]
-                if first_cell.language == "python":
-                    # Regex to find #| default_exp name or #| default_exp name.py
-                    match = re.search(r"^#\|\s*default_exp\s+(\S+)", first_cell.code, re.MULTILINE)
-                    if match:
-                        target_name = match.group(1).strip()
-                        if not target_name:
-                            typer.secho(f"  Warning: Found '#| default_exp' directive but no filename specified in first cell of {getattr(app, '_filename', '?')}", fg=typer.colors.YELLOW)
-                        else:
-                            # Ensure it ends with .py
-                            if not target_name.endswith('.py'):
-                                target_name += '.py'
-                            target_filename = target_name
-                            typer.echo(f"  Found export directive: target filename set to '{target_filename}'")
-
-        # --- 2. Extract ## Export code from all cells (in execution order) --- 
-        # Determine the relative path of the notebook file once
+        # --- 2. Extract #| export code from all cells (in execution order) --- 
+        # Determine the relative path of the notebook file once (for origin comments)
         if hasattr(app, '_filename') and app._filename:
             try:
                 abs_notebook_path = Path(app._filename).resolve()
@@ -137,10 +129,10 @@ def extract_export_details(app: App, project_root: Path) -> tuple[str | None, st
         else:
              typer.secho("  Warning: Cannot determine notebook filename from app object. Origin comment will be incomplete.", fg=typer.colors.YELLOW)
 
-        order = internal_app.execution_order
+        order = internal_app.execution_order # Use execution order for export extraction
         export_cells = {
             k: v for k, v in internal_app.graph.cells.items()
-            if v.language == "python" and "#| export" in v.code
+            if v.language == "python" and "#| export" in v.code # Filter for export tag
         }
 
         for cell_id in order:

@@ -6,7 +6,7 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
-    #| default_exp core
+    #| default_exp core_feature
     return
 
 
@@ -25,9 +25,26 @@ def _(mo):
 @app.cell
 def hello():
     #| export
-    def hello() -> str:
-        return "Hello from modev!"
+    def hello(name="there") -> str:
+        return f"Hello, {name} from modev!!!"
     return (hello,)
+
+
+@app.cell
+def _(hello):
+    #| export 
+
+    name = "Nikola"
+    last = "Dendic"
+
+    hello(name=f"{name} {last}")
+
+    return last, name
+
+
+@app.cell
+def _():
+    return
 
 
 if __name__ == "__main__":
