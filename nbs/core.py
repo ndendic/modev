@@ -6,6 +6,12 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
+    #| default_exp core
+    return
+
+
+@app.cell
+def _():
     import marimo as mo
     return (mo,)
 
@@ -18,16 +24,10 @@ def _(mo):
 
 @app.cell
 def hello():
-    ## Export
+    #| export
     def hello() -> str:
         return "Hello from modev!"
     return (hello,)
-
-
-@app.cell
-def _(hello):
-    hello()
-    return
 
 
 if __name__ == "__main__":

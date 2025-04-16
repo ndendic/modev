@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "marimo>=0.12.8",
     "typer>=0.15.2",
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]
@@ -18,3 +19,6 @@ modev = "modev.cli:app"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv.workspace]
+members = ["test"]
