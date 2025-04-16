@@ -7,6 +7,8 @@ import typer
 import yaml # Add yaml import
 import tomllib # To read project name for default export dir
 import re # Add re import for directive parsing
+import ast # Add ast import for import analysis
+from typing import List, Dict, Set, Tuple, Optional
 
 # --- Helper Functions ---
 def find_project_root() -> Path:
@@ -80,17 +82,106 @@ def load_config(project_root: Path) -> tuple[Path, Path]:
 
     return nbs_dir_path, export_dir_path
 
-def extract_export_details(app: App, project_root: Path) -> tuple[str | None, str, set[str]]:
+def transform_imports(code: str, notebook_relative_path: str, target_file: str, project_name: str) -> str:
+    """
+    Transform import statements in exported code to ensure they work in both notebook and module contexts.
+    
+    Args:
+        code: The code string to transform
+        notebook_relative_path: Path of the notebook relative to project root (for diagnostics)
+        target_file: Path of the target file relative to export_dir (for calculating relative imports)
+        project_name: The project name for absolute imports
+        
+    Returns:
+        Transformed code string
+    """
+    if not code.strip():
+        return code
+        
+    # Quick return if no imports detected
+    if "import " not in code:
+        return code
+        
+    try:
+        # Parse the code to an AST
+        tree = ast.parse(code)
+        
+        # Track imports for diagnostics
+        import_from_statements = []
+        import_statements = []
+        
+        # Collect all imports
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                import_from_statements.append(node)
+            elif isinstance(node, ast.Import):
+                import_statements.append(node)
+        
+        # If no imports found in AST, return unchanged
+        if not import_from_statements and not import_statements:
+            return code
+            
+        # For now, just add warnings for potentially problematic imports
+        # In a more advanced implementation, we would transform the imports here
+        
+        for node in import_from_statements:
+            module = node.module if node.module else ""
+            
+            # Case 1: Detect relative imports from notebook
+            if module.startswith('.'):
+                typer.secho(f"  Note: Detected relative import '{module}' in {notebook_relative_path}. " 
+                           f"These may need adjustment if notebooks and modules have different structures.", 
+                           fg=typer.colors.YELLOW)
+            
+            # Case 2: Check for imports from potentially problematic locations
+            elif module.startswith('nbs.'):
+                typer.secho(f"  Warning: Import from 'nbs.' in {notebook_relative_path}. " 
+                           f"This will likely fail in exported modules. Consider restructuring imports.", 
+                           fg=typer.colors.RED)
+                
+            # For debugging, print all imports
+            # typer.echo(f"  Found import: from {module} import {[n.name for n in node.names]}")
+            
+        for node in import_statements:
+            for name in node.names:
+                if name.name.startswith('nbs.'):
+                    typer.secho(f"  Warning: Import of 'nbs.' module in {notebook_relative_path}. "
+                               f"This will likely fail in exported modules.", 
+                               fg=typer.colors.RED)
+                    
+                # For debugging, print all imports
+                # typer.echo(f"  Found import: import {name.name}")
+                
+        # Future enhancement: Modify the AST and generate new code
+        # For now, just return the original code with warnings
+        return code
+            
+    except SyntaxError:
+        typer.secho(f"  Warning: Syntax error when analyzing imports in {notebook_relative_path}. "
+                   f"Imports may need manual adjustment.", fg=typer.colors.RED)
+        return code
+    except Exception as e:
+        typer.secho(f"  Warning: Error analyzing imports in {notebook_relative_path}: {e}. "
+                   f"Using original imports.", fg=typer.colors.RED)
+        return code
+
+def extract_export_details(app: App, project_root: Path, project_name: str, notebook_relative_path: str) -> tuple[str | None, str, set[str]]:
     """
     Extracts target filename from the first #| default_exp directive encountered,
     and Python code marked with '#| export' from a marimo App.
+
+    Args:
+        app: The marimo App object
+        project_root: Path to the project root
+        project_name: Project name for import processing
+        notebook_relative_path: Path of notebook relative to project root
 
     Returns: (target_filename | None, code_export, all_defs)
     """
     target_filename: str | None = None
     code_export: str = ""
     all_defs: set[str] = set()
-    relative_notebook_path_str = "unknown_notebook" # Default path string
+    relative_notebook_path_str = notebook_relative_path # Using the passed relative path
 
     try:
         internal_app = InternalApp(app)
@@ -142,10 +233,24 @@ def extract_export_details(app: App, project_root: Path) -> tuple[str | None, st
                 cleaned_code = cell.code.replace("#| export", origin_comment, 1).strip()
 
                 if cleaned_code:
-                     if not cleaned_code.startswith(origin_comment):
-                          code_export += origin_comment + "\n" + cleaned_code + "\n\n"
-                     else:
-                          code_export += cleaned_code + "\n\n"
+                    # Apply import transformations
+                    if target_filename:
+                        target_path = target_filename
+                    else:
+                        # Default to using notebook name if no target specified
+                        target_path = str(Path(notebook_relative_path).with_suffix('.py').name)
+                        
+                    transformed_code = transform_imports(
+                        cleaned_code, 
+                        notebook_relative_path, 
+                        target_path, 
+                        project_name
+                    )
+                    
+                    if not transformed_code.startswith(origin_comment):
+                         code_export += origin_comment + "\n" + transformed_code + "\n\n"
+                    else:
+                         code_export += transformed_code + "\n\n"
 
                 if hasattr(cell, 'defs'):
                      all_defs.update(cell.defs)
@@ -166,20 +271,29 @@ def run_export():
     """
     processed_files_count = 0
     exported_files_count = 0
-    written_files = set() # Keep track of files written via default_exp to warn on overwrite
+    written_files = set()
 
     try:
         project_root = find_project_root()
-        # typer.echo(f"Project root found: {project_root}") # Less verbose now
-
+        
         # Load configuration
         nbs_dir, output_base_dir = load_config(project_root)
+        
+        # Determine project name for import handling
+        project_name = project_root.name # Default to directory name
+        pyproject_path = project_root / "pyproject.toml"
+        if pyproject_path.exists():
+            try:
+                with open(pyproject_path, "rb") as f:
+                    data = tomllib.load(f)
+                    project_name = data.get("project", {}).get("name", project_name)
+            except Exception:
+                pass # Ignore errors, just use the default
 
         # Ensure export directory exists
         output_base_dir.mkdir(parents=True, exist_ok=True)
 
         # Add project root and source dir to Python path
-        # ... (sys.path modification remains the same)
         project_root_str = str(project_root)
         src_dir_str = str(project_root / 'src') # Standard src dir
 
@@ -198,19 +312,65 @@ def run_export():
         with typer.progressbar(python_files, label="Processing notebooks") as progress:
             for py_file in progress:
                 processed_files_count += 1
-                target_filename: str | None = None
-                output_file_path: Path | None = None
-
                 try:
                     relative_notebook_path = py_file.relative_to(nbs_dir)
                     relative_path_for_import = py_file.relative_to(project_root)
+                    notebook_rel_str = str(relative_path_for_import).replace('\\', '/')
 
                     if py_file.name == '__init__.py':
                         continue
 
                     module_name = '.'.join(relative_path_for_import.with_suffix('').parts)
-                    # Default output path (used if no directive)
                     default_output_path = output_base_dir / relative_notebook_path
+
+                    try:
+                        module = importlib.import_module(module_name)
+
+                        if hasattr(module, 'app') and isinstance(getattr(module, 'app'), App):
+                            app_object = getattr(module, 'app')
+                            
+                            # Pass project name and notebook_rel_str to extract_export_details
+                            target_filename, file_code, defined_names = extract_export_details(
+                                app_object, 
+                                project_root, 
+                                project_name,  # Using the project_name from above
+                                notebook_rel_str
+                            )
+
+                            if file_code: # Only proceed if there is code tagged with #| export
+                                # Determine final output path
+                                if target_filename:
+                                    output_file_path = output_base_dir / target_filename
+                                    # Warn if this specific filename was already written by another notebook via default_exp
+                                    if output_file_path in written_files:
+                                         typer.secho(f"  Warning: Overwriting {output_file_path} which was already generated by another notebook's '#| default_exp {target_filename}' directive.", fg=typer.colors.YELLOW)
+                                    elif output_file_path.exists():
+                                        # Warn if the file exists but wasn't from *this run* (less severe warning)
+                                         typer.secho(f"  Warning: Overwriting existing file {output_file_path} specified by '#| default_exp {target_filename}' in {py_file.name}", fg=typer.colors.YELLOW)
+                                    written_files.add(output_file_path) # Track files written via directive
+                                else:
+                                    output_file_path = default_output_path
+
+                                # Prepare code with __all__
+                                public_names = {name for name in defined_names if not name.startswith('_')}
+                                dunder_all_list = sorted(list(public_names))
+                                dunder_all_string = f"__all__ = {repr(dunder_all_list)}\n\n"
+                                final_code_to_write = dunder_all_string + file_code
+
+                                # Write the file
+                                try:
+                                    output_file_path.parent.mkdir(parents=True, exist_ok=True)
+                                    output_file_path.write_text(final_code_to_write)
+                                    exported_files_count += 1
+                                except IOError as e:
+                                    typer.secho(f"  Error writing to output file {output_file_path}: {e}", fg=typer.colors.RED)
+                                except Exception as e:
+                                    typer.secho(f"  Unexpected error writing file {output_file_path}: {e}", fg=typer.colors.RED)
+
+                    except ImportError as e:
+                        typer.secho(f"  Error importing module {module_name} from {py_file}: {e}", fg=typer.colors.RED)
+                    except Exception as e:
+                        typer.secho(f"  Unexpected error processing file {py_file}: {e}", fg=typer.colors.RED)
 
                 except ValueError as e:
                     typer.secho(f"Warning: Could not determine relative path for {py_file} within {nbs_dir} or {project_root}. Skipping. Error: {e}", fg=typer.colors.YELLOW)
@@ -219,58 +379,10 @@ def run_export():
                     typer.secho(f"Warning: Error calculating paths for {py_file}. Skipping. Error: {e}", fg=typer.colors.YELLOW)
                     continue
 
-                try:
-                    module = importlib.import_module(module_name)
-
-                    if hasattr(module, 'app') and isinstance(getattr(module, 'app'), App):
-                        app_object = getattr(module, 'app')
-                        # Call the new function to get details
-                        target_filename, file_code, defined_names = extract_export_details(app_object, project_root)
-
-                        if file_code: # Only proceed if there is code tagged with #| export
-                            # Determine final output path
-                            if target_filename:
-                                output_file_path = output_base_dir / target_filename
-                                # Warn if this specific filename was already written by another notebook via default_exp
-                                if output_file_path in written_files:
-                                     typer.secho(f"  Warning: Overwriting {output_file_path} which was already generated by another notebook's '#| default_exp {target_filename}' directive.", fg=typer.colors.YELLOW)
-                                elif output_file_path.exists():
-                                    # Warn if the file exists but wasn't from *this run* (less severe warning)
-                                     typer.secho(f"  Warning: Overwriting existing file {output_file_path} specified by '#| default_exp {target_filename}' in {py_file.name}", fg=typer.colors.YELLOW)
-                                written_files.add(output_file_path) # Track files written via directive
-                            else:
-                                output_file_path = default_output_path
-                                # Optional: Warn if default path overwrites existing file?
-                                # if output_file_path.exists():
-                                #     typer.secho(f"  Warning: Overwriting existing file {output_file_path} (using default name from {py_file.name})", fg=typer.colors.YELLOW)
-
-                            # Prepare code with __all__
-                            public_names = {name for name in defined_names if not name.startswith('_')}
-                            dunder_all_list = sorted(list(public_names))
-                            dunder_all_string = f"__all__ = {repr(dunder_all_list)}\n\n"
-                            final_code_to_write = dunder_all_string + file_code
-
-                            # Write the file
-                            try:
-                                output_file_path.parent.mkdir(parents=True, exist_ok=True)
-                                output_file_path.write_text(final_code_to_write)
-                                exported_files_count += 1
-                            except IOError as e:
-                                typer.secho(f"  Error writing to output file {output_file_path}: {e}", fg=typer.colors.RED)
-                            except Exception as e:
-                                typer.secho(f"  Unexpected error writing file {output_file_path}: {e}", fg=typer.colors.RED)
-
-                except ImportError as e:
-                    typer.secho(f"  Error importing module {module_name} from {py_file}: {e}", fg=typer.colors.RED)
-                except Exception as e:
-                    typer.secho(f"  Unexpected error processing file {py_file}: {e}", fg=typer.colors.RED)
-
-        # ... (Summary remains the same)
         typer.echo(f"\n--- Summary ---")
         typer.echo(f"Processed {processed_files_count}/{len(python_files)} Python files from {nbs_dir}.")
         typer.echo(f"Successfully exported code to {exported_files_count} files in {output_base_dir}.")
 
-    # ... (Error handling remains the same)
     except FileNotFoundError as e:
         typer.secho(f"Error: {e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)

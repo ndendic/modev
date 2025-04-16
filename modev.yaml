@@ -1,2 +1,2 @@
-export_dir: test
+export_dir: src/modev
 notebooks_dir: nbs

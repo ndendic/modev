@@ -44,6 +44,13 @@ def _(hello):
 
 @app.cell
 def _():
+    #| export 
+    import modev.cli as cli
+    return (cli,)
+
+
+@app.cell
+def _():
     return
 
 
