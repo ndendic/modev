@@ -17,12 +17,10 @@
 #     print(f"Deleted refs: {v.deleted_refs}")
 #     print(f"Body: {v.body}")
 #     print(f"Last expr: {v.last_expr}")
+#     print(f"Imports: {v.imports}")
+#     print(f"Output: {v.output}")
+
 #     print("--------------------------------")
 
 # # codes = {k: v.code for k, v in InternalApp(app).graph.cells.items() if v.language=="python" and "## Export" in v.code}
-
-# # code_export = ""
-# # for i in order:
-# #     if i in codes:
-# #         code_export += codes[i].replace("## Export", "") + "\n"
 

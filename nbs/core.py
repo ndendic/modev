@@ -18,7 +18,7 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md(r"""# Core""")
+    mo.md(r"""# This is the example of the core file""")
     return
 
 
@@ -38,7 +38,6 @@ def _(hello):
     last = "Dendic"
 
     hello(name=f"{name} {last}")
-
     return last, name
 
 
@@ -47,6 +46,13 @@ def _():
     #| export 
     import modev.cli as cli
     return (cli,)
+
+
+@app.cell
+def _():
+    #| export 
+    print("Somthing really non sense")
+    return
 
 
 @app.cell

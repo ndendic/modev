@@ -84,76 +84,77 @@ def load_config(project_root: Path) -> tuple[Path, Path]:
 
 def transform_imports(code: str, notebook_relative_path: str, target_file: str, project_name: str) -> str:
     """
-    Transform import statements in exported code to ensure they work in both notebook and module contexts.
+    Currently only warns about potentially problematic imports without transformations.
+    
+    TRANSFORMATION TEMPORARILY DISABLED:
+    The import transformation logic has been commented out for now
+    and will be revisited in a future update.
     
     Args:
         code: The code string to transform
         notebook_relative_path: Path of the notebook relative to project root (for diagnostics)
-        target_file: Path of the target file relative to export_dir (for calculating relative imports)
+        target_file: Path of the target file relative to export_dir
         project_name: The project name for absolute imports
         
     Returns:
-        Transformed code string
+        Original code string (transformations disabled)
     """
-    if not code.strip():
-        return code
-        
-    # Quick return if no imports detected
-    if "import " not in code:
+    if not code.strip() or "import " not in code:
         return code
         
     try:
         # Parse the code to an AST
         tree = ast.parse(code)
         
-        # Track imports for diagnostics
-        import_from_statements = []
-        import_statements = []
+        # Track imports for warnings only (transformations disabled)
+        # imports_to_transform = []
         
-        # Collect all imports
+        # Check for problematic imports
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
-                import_from_statements.append(node)
-            elif isinstance(node, ast.Import):
-                import_statements.append(node)
-        
-        # If no imports found in AST, return unchanged
-        if not import_from_statements and not import_statements:
-            return code
-            
-        # For now, just add warnings for potentially problematic imports
-        # In a more advanced implementation, we would transform the imports here
-        
-        for node in import_from_statements:
-            module = node.module if node.module else ""
-            
-            # Case 1: Detect relative imports from notebook
-            if module.startswith('.'):
-                typer.secho(f"  Note: Detected relative import '{module}' in {notebook_relative_path}. " 
-                           f"These may need adjustment if notebooks and modules have different structures.", 
-                           fg=typer.colors.YELLOW)
-            
-            # Case 2: Check for imports from potentially problematic locations
-            elif module.startswith('nbs.'):
-                typer.secho(f"  Warning: Import from 'nbs.' in {notebook_relative_path}. " 
-                           f"This will likely fail in exported modules. Consider restructuring imports.", 
-                           fg=typer.colors.RED)
+                module = node.module if node.module else ""
                 
-            # For debugging, print all imports
-            # typer.echo(f"  Found import: from {module} import {[n.name for n in node.names]}")
-            
-        for node in import_statements:
-            for name in node.names:
-                if name.name.startswith('nbs.'):
-                    typer.secho(f"  Warning: Import of 'nbs.' module in {notebook_relative_path}. "
-                               f"This will likely fail in exported modules.", 
+                # --- TRANSFORMATION DISABLED ---
+                # Case 1: Transform project_name.X imports to relative imports
+                if module.startswith(f"{project_name}."):
+                    # Currently just warn without transformation
+                    typer.echo(f"  Note: Found project import: from {module} import ... (transformations disabled)")
+                    # imports_to_transform.append({
+                    #     'type': 'from',
+                    #     'original': f"from {module}",
+                    #     'replacement': f"from .{module[len(project_name)+1:]}",
+                    #     'line': node.lineno
+                    # })
+                    # typer.echo(f"  Transforming: from {module} import ... -> from .{module[len(project_name)+1:]} import ...")
+                
+                # Case 2: Detect relative imports from notebook
+                elif module.startswith('.'):
+                    typer.secho(f"  Note: Using relative import '{module}' in {notebook_relative_path}", 
+                               fg=typer.colors.YELLOW)
+                
+                # Case 3: Check for imports from potentially problematic locations
+                elif module.startswith('nbs.'):
+                    typer.secho(f"  Warning: Import from 'nbs.' in {notebook_relative_path}. " 
+                               f"This will likely fail in exported modules. Consider restructuring imports.", 
                                fg=typer.colors.RED)
-                    
-                # For debugging, print all imports
-                # typer.echo(f"  Found import: import {name.name}")
                 
-        # Future enhancement: Modify the AST and generate new code
-        # For now, just return the original code with warnings
+            elif isinstance(node, ast.Import):
+                for name in node.names:
+                    # --- TRANSFORMATION DISABLED ---
+                    # Handle direct imports of project modules: import project_name.module
+                    if name.name.startswith(f"{project_name}."):
+                        # Currently just warn without transformation
+                        typer.echo(f"  Note: Found project import: import {name.name} (transformations disabled)")
+                        # Special handling for imports with aliases was here
+                    
+                    elif name.name.startswith('nbs.'):
+                        typer.secho(f"  Warning: Import of 'nbs.' module in {notebook_relative_path}. "
+                                   f"This will likely fail in exported modules.", 
+                                   fg=typer.colors.RED)
+        
+        # --- TRANSFORMATION DISABLED ---
+        # Transformation code was here
+        # Currently just return the original code
         return code
             
     except SyntaxError:
