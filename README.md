@@ -1,6 +1,8 @@
 # 🚀 python-modev
 
-A development environment that uses Marimo notebooks as your primary development interface, inspired by nbdev. This tool allows you to write and organize your code in Marimo notebooks while maintaining a clean, exportable Python package structure.
+> ⚠️ **Experimental Project**: This is an early-stage experimental project. Features may change, and some functionality may not work as expected. Use with caution in production environments.
+
+A development environment that uses Marimo notebooks as your primary development interface, inspired by [nbdev](https://nbdev.fast.ai/). This tool allows you to write and organize your code in Marimo notebooks while maintaining a clean, exportable Python package structure.
 
 ## 📦 Installation
 
@@ -29,7 +31,7 @@ modev init
 
 2. Start your Marimo notebook:
 ```bash
-marimo edit
+marimo edit nbs/core.py
 ```
 
 3. Export your code to Python files:
@@ -44,26 +46,25 @@ After initialization, your project will have the following structure:
 your-project/
 ├── modev.yaml        # Configuration file
 ├── nbs/              # Your Marimo notebooks
-└── src/your-project  # Exported Python files
+│   └── core.py       # Initial notebook created by modev init
+└── src/your-project/ # Exported Python files
 ```
 
 ## ⚙️ Configuration
 
-The `modev.yaml` file controls how your code is exported from notebooks to Python files. Here's an example configuration:
+The `modev.yaml` file controls how your code is exported from notebooks to Python files. Here's the configuration format:
 
 ```yaml
-paths:
-  - source: notebooks/your_notebook.py
-    destination: src/your_module/
+export_dir: src/your-project
+notebooks_dir: nbs
 ```
 
 ### Configuration Options
 
-- `source`: Path to your Marimo notebook
-- `destination`: Where to export the Python files
-- `export_type`: 
-  - `module`: Export as a Python module (creates `__init__.py`)
-  - `script`: Export as a standalone script
+- `notebooks_dir`: Directory containing your Marimo notebooks (default: `nbs`)
+- `export_dir`: Directory where exported Python files will be written (default: `src/{project-name}`)
+
+The export directory path will be created automatically if it doesn't exist.
 
 ## 📝 Export Directives
 

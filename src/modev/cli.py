@@ -31,7 +31,7 @@ def _(mo):
 
 @app.cell
 def example_export():
-    ## Export
+    #| export
     # Define functions or variables here that you want to export
     def hello() -> str:
         return "Hello from your new modev project!"
